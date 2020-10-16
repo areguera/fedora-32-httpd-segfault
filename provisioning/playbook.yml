@@ -1,0 +1,77 @@
+---
+- hosts: all
+  gather_facts: false
+  become: true
+
+  handlers:
+    - name: restart_httpd
+      systemd:
+        name: httpd
+        state: restarted
+    - name: restart_firewalld
+      systemd:
+        name: firewalld
+        state: restarted
+
+  tasks:
+    - name: Install httpd
+      package:
+        name: httpd
+        state: present
+
+    - name: Allow httpd to access home directories
+      ansible.posix.seboolean:
+        name: httpd_enable_homedirs
+        state: true
+        persistent: true
+
+    - name: Configure httpd vhost
+      copy:
+        src: vhost.conf
+        dest: /etc/httpd/conf.d/student.localhost.conf
+      notify: restart_httpd
+
+    - name: Create user used to serve files
+      user:
+        name: student
+        state: present
+
+    - name: Create user's public_html directory
+      file:
+        path: /home/student/public_html
+        state: directory
+
+    - name: Update home directory permissions
+      file:
+        path: /home/student
+        group: apache
+        mode: '0750'
+        recurse: true
+
+    - name: Comment the httpd welcome.conf file
+      copy:
+        src: welcome.conf
+        dest: /etc/httpd/conf.d/welcome.conf
+      notify: restart_httpd
+
+    - name: Synchronization customization files
+      ansible.posix.synchronize:
+        src: files/theme
+        dest: /var/www/html/
+
+    - name: Synchronization files to student home directory
+      ansible.posix.synchronize:
+        src: files/theme
+        dest: /home/student/public_html/
+
+    - name: Start httpd
+      systemd:
+        name: httpd
+        state: started
+
+    - name: Permit traffic in default zone for https service
+      ansible.posix.firewalld:
+        service: http
+        permanent: true
+        state: enabled
+      notify: restart_firewalld
